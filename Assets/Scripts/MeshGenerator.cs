@@ -3,7 +3,7 @@ using System.Collections;
 
 public static class MeshGenerator
 {
-
+    // Tworzy mesh terenu na podstawie mapy wysoko?ci
     public static MeshData GenerateTerrainMesh(float[,] heightMap, float heightMultiplier, AnimationCurve heightCurve, int levelOfDetail)
     {
         int width = heightMap.GetLength(0);
@@ -17,6 +17,7 @@ public static class MeshGenerator
         MeshData meshData = new MeshData(verticesPerLine, verticesPerLine);
         int vertexIndex = 0;
 
+        // Generowanie wierzcho?ków, UV i trójk?tów
         for (int y = 0; y < height; y += meshSimplificationIncrement)
         {
             for (int x = 0; x < width; x += meshSimplificationIncrement)
@@ -35,10 +36,10 @@ public static class MeshGenerator
         }
 
         return meshData;
-
     }
 }
 
+// Klasa przechowuj?ca dane mesha i umo?liwiaj?ca jego generowanie
 public class MeshData
 {
     public Vector3[] vertices;
@@ -54,6 +55,7 @@ public class MeshData
         triangles = new int[(meshWidth - 1) * (meshHeight - 1) * 6];
     }
 
+    // Dodaje trójkat do tablicy trójk?tów
     public void AddTriangle(int a, int b, int c)
     {
         triangles[triangleIndex] = a;
@@ -62,14 +64,14 @@ public class MeshData
         triangleIndex += 3;
     }
 
+    // Tworzy finalny Mesh do uzycia w Unity
     public Mesh CreateMesh()
     {
         Mesh mesh = new Mesh();
         mesh.vertices = vertices;
         mesh.triangles = triangles;
         mesh.uv = uvs;
-        mesh.RecalculateNormals();
+        mesh.RecalculateNormals(); // oblicza normalne do poprawnego oswietlenia
         return mesh;
     }
-
 }

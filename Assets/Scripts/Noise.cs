@@ -3,7 +3,7 @@ using System.Collections;
 
 public static class Noise
 {
-    // Generuje map? szumów Perlin'a
+    // Generuje mape szumów Perlin'a
     public static float[,] GenerateNoiseMap(int mapWidth, int mapHeight, int seed, float scale, int octaves, float persistance, float lacunarity, Vector2 offset)
     {
         float[,] noiseMap = new float[mapWidth, mapHeight];
@@ -20,7 +20,7 @@ public static class Noise
 
         if (scale <= 0)
         {
-            scale = 0.0001f; // unikni?cie dzielenia przez 0
+            scale = 0.0001f; // unikniecie dzielenia przez 0
         }
 
         float maxNoiseHeight = float.MinValue;
@@ -29,7 +29,7 @@ public static class Noise
         float halfWidth = mapWidth / 2f;
         float halfHeight = mapHeight / 2f;
 
-        // P?tla po wszystkich punktach mapy
+        // Petla po wszystkich punktach mapy
         for (int y = 0; y < mapHeight; y++)
         {
             for (int x = 0; x < mapWidth; x++)
@@ -47,11 +47,11 @@ public static class Noise
                     float perlinValue = Mathf.PerlinNoise(sampleX, sampleY) * 2 - 1;
                     noiseHeight += perlinValue * amplitude;
 
-                    amplitude *= persistance; // zmniejszanie wp?ywu kolejnej oktawy
-                    frequency *= lacunarity; // zwi?kszanie cz?stotliwo?ci kolejnej oktawy
+                    amplitude *= persistance; // zmniejszanie wplywu kolejnej oktawy
+                    frequency *= lacunarity; // zwi?kszanie czestotliwosci kolejnej oktawy
                 }
 
-                // Zapami?tanie min i max wysoko?ci w mapie
+                // Zapamietanie min i max wysokosci w mapie
                 if (noiseHeight > maxNoiseHeight)
                     maxNoiseHeight = noiseHeight;
                 else if (noiseHeight < minNoiseHeight)
