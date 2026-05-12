@@ -76,7 +76,6 @@ public class VillageGenerator : MonoBehaviour
     {
         ClearVillage();
 
-        // U?yj seeda z MapGenerator
         Random.InitState(mapSeed);
 
         if (!FindFlatArea(noiseMap, terrainObj, out villageCenter))
@@ -185,6 +184,8 @@ public class VillageGenerator : MonoBehaviour
 
     void AssignPlots()
     {
+        // AssignPlots zachowany dla kompatybilno?ci (wype?nia list? plots u?ywan? przez inne systemy).
+        // Logika budynków przeniesiona do PlaceBuildings.
         List<PlotData> candidates = new List<PlotData>();
         float fixedPlotWidth = 15f;
         float fixedPlotDepth = 15f;
@@ -230,31 +231,89 @@ public class VillageGenerator : MonoBehaviour
             }
         }
 
-        for (int i = candidates.Count - 1; i > 0; i--)
-        {
-            int j = Random.Range(0, i + 1);
-            var tmp = candidates[i]; candidates[i] = candidates[j]; candidates[j] = tmp;
-        }
-
-        Queue<PlotType> pool = new Queue<PlotType>();
-        for (int i = 0; i < churchCount; i++) pool.Enqueue(PlotType.Church);
-        for (int i = 0; i < schoolCount; i++) pool.Enqueue(PlotType.School);
-        for (int i = 0; i < shopCount; i++) pool.Enqueue(PlotType.Shop);
-        for (int i = 0; i < houseCount; i++) pool.Enqueue(PlotType.House);
-
-        int assigned = 0;
-        foreach (var c in candidates)
-        {
-            if (pool.Count == 0) break;
-            c.type = pool.Dequeue();
-            assigned++;
-        }
-
-        if (pool.Count > 0)
-            Debug.LogWarning($"[VillageGenerator] Zabrak?o miejsca na {pool.Count} budynków. Zwi?ksz Village Radius.");
-
         plots.AddRange(candidates);
-        Debug.Log($"[VillageGenerator] Dzia?ek: {candidates.Count}, przydzielono budynków: {assigned}");
+    }
+
+    // -------------------------------------------------------------------------
+    // Dopasuj budynek do terenu:
+    //   1. Znajd? wysoko?ci terenu w 4 naro?nikach podstawy + centrum
+    //   2. Wyznacz p?aszczyzn? najlepiej pasuj?c? (metoda Newella)
+    //   3. Ustaw pozycj? tak, ?eby DOLNA kraw?d? boundsów siedzia?a na tej p?aszczy?nie
+    // -------------------------------------------------------------------------
+    bool SnapBuildingToTerrain(GameObject prefab, Vector3 centerPos, Quaternion facingRot,
+        out Vector3 finalPos, out Quaternion finalRot)
+    {
+        finalPos = centerPos;
+        finalRot = facingRot;
+
+        // --- krok 1: poznaj rozmiary prefaba w kierunku patrzenia ---
+        GameObject temp = Instantiate(prefab, Vector3.zero, facingRot);
+        Bounds b = CalculateBounds(temp);
+        DestroyImmediate(temp);
+
+        // Je?li prefab nie ma ?adnych rendererów, nie mo?emy nic zrobi?
+        if (b.size == Vector3.zero) return false;
+
+        float hw = b.extents.x;   // po?owa szeroko?ci (o? X lokalnie)
+        float hd = b.extents.z;   // po?owa g??boko?ci (o? Z lokalnie)
+
+        Vector3 right = facingRot * Vector3.right;
+        Vector3 forward = facingRot * Vector3.forward;
+
+        // --- krok 2: 4 naro?niki + ?rodek podstawy w przestrzeni ?wiata ---
+        Vector3[] samplePoints = new Vector3[]
+        {
+            centerPos + right *  hw + forward *  hd,   // przód-prawy
+            centerPos - right *  hw + forward *  hd,   // przód-lewy
+            centerPos - right *  hw - forward *  hd,   // ty?-lewy
+            centerPos + right *  hw - forward *  hd,   // ty?-prawy
+            centerPos                                   // ?rodek
+        };
+
+        Vector3[] groundPts = new Vector3[samplePoints.Length];
+        int hits = 0;
+        foreach (var sp in samplePoints)
+        {
+            RaycastHit hit;
+            if (Physics.Raycast(new Vector3(sp.x, 500f, sp.z), Vector3.down, out hit, 1000f, terrainLayer))
+                groundPts[hits++] = hit.point;
+        }
+
+        if (hits < 3) return false;
+
+        // --- krok 3: normalna p?aszczyzny metod? Newella ---
+        Vector3 normal = Vector3.zero;
+        for (int i = 0; i < hits; i++)
+        {
+            Vector3 curr = groundPts[i];
+            Vector3 next = groundPts[(i + 1) % hits];
+            normal.x += (curr.y - next.y) * (curr.z + next.z);
+            normal.y += (curr.z - next.z) * (curr.x + next.x);
+            normal.z += (curr.x - next.x) * (curr.y + next.y);
+        }
+        normal = normal.normalized;
+        if (normal.y < 0) normal = -normal;
+
+        // --- krok 4: centroid punktów terenu = punkt zakotwiczenia ---
+        Vector3 centroid = Vector3.zero;
+        for (int i = 0; i < hits; i++) centroid += groundPts[i];
+        centroid /= hits;
+
+        // --- krok 5: finalna rotacja = przechylenie wg normalnej + kierunek patrzenia ---
+        Quaternion tilt = Quaternion.FromToRotation(Vector3.up, normal);
+        finalRot = tilt * facingRot;
+
+        // --- krok 6: przesu? budynek w gór? tak, ?eby dolna ?cianka boundsów
+        //             siedzia?a dok?adnie na centroidzie terenu ---
+        GameObject temp2 = Instantiate(prefab, Vector3.zero, finalRot);
+        Bounds b2 = CalculateBounds(temp2);
+        DestroyImmediate(temp2);
+
+        // bottomOffset = odleg?o?? od pivotu obiektu do dolnej kraw?dzi boundsów
+        float bottomOffset = -b2.min.y;
+        finalPos = centroid + Vector3.up * bottomOffset;
+
+        return true;
     }
 
     void PlaceBuildings()
@@ -262,10 +321,12 @@ public class VillageGenerator : MonoBehaviour
         placedBounds.Clear();
         int buildingsPlaced = 0;
 
-        // Zbierz wszystkie budynki do postawienia jako list? (typ + prefab)
+        // Kolejka: wszystkie budynki do postawienia
         List<(PlotType type, GameObject prefab)> buildingQueue = new List<(PlotType, GameObject)>();
-        for (int i = 0; i < churchCount; i++) buildingQueue.Add((PlotType.Church, churchPrefab));
-        for (int i = 0; i < schoolCount; i++) buildingQueue.Add((PlotType.School, schoolPrefab));
+        for (int i = 0; i < churchCount; i++)
+            buildingQueue.Add((PlotType.Church, churchPrefab));
+        for (int i = 0; i < schoolCount; i++)
+            buildingQueue.Add((PlotType.School, schoolPrefab));
         for (int i = 0; i < shopCount; i++)
         {
             var p = shopPrefabs != null && shopPrefabs.Length > 0
@@ -279,11 +340,11 @@ public class VillageGenerator : MonoBehaviour
             buildingQueue.Add((PlotType.House, p));
         }
 
-        // Zbierz wszystkie mo?liwe pozycje (generuj z wi?kszym zasi?giem)
+        // Wszystkie mo?liwe pozycje wzd?u? dróg
         List<(Vector3 pos, Vector3 roadDir, bool leftSide)> allCandidates =
             GenerateAllCandidatePositions();
 
-        // Potasuj kandydatów
+        // Potasuj, ?eby budynki by?y roz?o?one ró?norodnie
         for (int i = allCandidates.Count - 1; i > 0; i--)
         {
             int j = Random.Range(0, i + 1);
@@ -298,25 +359,25 @@ public class VillageGenerator : MonoBehaviour
 
             foreach (var candidate in allCandidates)
             {
-                // Oblicz rotacj?
+                // Kierunek "twarz? do drogi"
                 Vector3 faceDir = candidate.leftSide
                     ? -Vector3.Cross(candidate.roadDir, Vector3.up)
                     : Vector3.Cross(candidate.roadDir, Vector3.up);
                 faceDir.y = 0;
                 Quaternion baseRot = faceDir != Vector3.zero
                     ? Quaternion.LookRotation(faceDir) : Quaternion.identity;
-                Vector3 terrainNormal = GetTerrainNormal(candidate.pos);
-                Quaternion finalRot = Quaternion.FromToRotation(Vector3.up, terrainNormal) * baseRot;
 
-                // Sprawd? bounds w miejscu docelowym bez tworzenia obiektu
-                GameObject temp = Instantiate(building.prefab, new Vector3(0, -9999, 0), finalRot);
-                Bounds tempBounds = CalculateBounds(temp);
-                float bottomOffset = temp.transform.position.y - tempBounds.min.y;
-                DestroyImmediate(temp);
+                // Dopasuj do terenu (przechylenie + pozycja)
+                Vector3 finalPos;
+                Quaternion finalRot;
+                if (!SnapBuildingToTerrain(building.prefab, candidate.pos, baseRot,
+                                           out finalPos, out finalRot))
+                    continue;
 
-                Vector3 spawnPos = candidate.pos;
-                spawnPos.y += bottomOffset;
-                tempBounds.center += spawnPos - new Vector3(0, -9999, 0);
+                // Sprawd? kolizje z ju? postawionymi budynkami i drogami
+                GameObject tempCheck = Instantiate(building.prefab, finalPos, finalRot);
+                Bounds tempBounds = CalculateBounds(tempCheck);
+                DestroyImmediate(tempCheck);
 
                 if (IsOverlapping(tempBounds, minBuildingDistance, placedBounds))
                     continue;
@@ -328,14 +389,14 @@ public class VillageGenerator : MonoBehaviour
                 }
                 if (collidesWithRoad) continue;
 
-                // Mo?na postawi?!
-                GameObject obj = Spawn(building.prefab, spawnPos, finalRot);
+                // Wszystko OK – postaw budynek
+                GameObject obj = Spawn(building.prefab, finalPos, finalRot);
                 if (obj != null)
                 {
                     placedBounds.Add(CalculateBounds(obj));
                     buildingsPlaced++;
                     placed = true;
-                    break; // przejd? do nast?pnego budynku
+                    break;
                 }
             }
 
@@ -353,7 +414,6 @@ public class VillageGenerator : MonoBehaviour
         float fixedPlotDepth = 15f;
         float distanceFromRoadEdge = 2.5f;
 
-        // Generuj z pe?nym villageRadius (bez ograniczenia do 85%)
         foreach (var rd in roads)
         {
             float t = fixedPlotWidth * 0.5f;
@@ -364,7 +424,7 @@ public class VillageGenerator : MonoBehaviour
 
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    // Wypróbuj kilka odleg?o?ci od drogi (aby znale?? miejsce)
+                    // Kilka rz?dów odleg?o?ci od drogi – wi?cej szans na wolne miejsce
                     for (float depthMult = 1f; depthMult <= 3f; depthMult += 0.5f)
                     {
                         Vector3 pos = SnapToTerrain(rp + perp * side *
@@ -376,7 +436,7 @@ public class VillageGenerator : MonoBehaviour
                         candidates.Add((pos, rd.direction, side == -1));
                     }
                 }
-                t += fixedPlotWidth * 0.5f; // g?stszy krok = wi?cej opcji
+                t += fixedPlotWidth * 0.5f;
             }
         }
 
@@ -403,15 +463,8 @@ public class VillageGenerator : MonoBehaviour
 
         foreach (Renderer r in rends)
         {
-            if (!started)
-            {
-                bounds = r.bounds;
-                started = true;
-            }
-            else
-            {
-                bounds.Encapsulate(r.bounds);
-            }
+            if (!started) { bounds = r.bounds; started = true; }
+            else bounds.Encapsulate(r.bounds);
         }
         return bounds;
     }
@@ -434,9 +487,7 @@ public class VillageGenerator : MonoBehaviour
             RaycastHit hit;
             if (Physics.Raycast(new Vector3(pos.x + o.x, 500, pos.z + o.z),
                                  Vector3.down, out hit, 1000f, terrainLayer))
-            {
                 pts[hits++] = hit.point;
-            }
         }
 
         if (hits < 3) return Vector3.up;
@@ -444,7 +495,6 @@ public class VillageGenerator : MonoBehaviour
         Vector3 v1 = pts[1] - pts[0];
         Vector3 v2 = pts[3] - pts[0];
         Vector3 normal = Vector3.Cross(v1, v2).normalized;
-
         if (normal.y < 0) normal = -normal;
         return normal;
     }
@@ -503,16 +553,12 @@ public class VillageGenerator : MonoBehaviour
 
         position = SnapToTerrain(position);
 
-        if (IsPositionOnAnyRoad(position))
-            return;
+        if (IsPositionOnAnyRoad(position)) return;
 
         Bounds decorBounds = new Bounds(position, new Vector3(boundsRadius, 1f, boundsRadius));
 
-        if (IsOverlapping(decorBounds, minDecorDistance, placedDecorBounds))
-            return;
-
-        if (IsOverlapping(decorBounds, 1f, placedBounds))
-            return;
+        if (IsOverlapping(decorBounds, minDecorDistance, placedDecorBounds)) return;
+        if (IsOverlapping(decorBounds, 1f, placedBounds)) return;
 
         var obj = Spawn(prefab, position, rotation);
         if (obj != null)
@@ -525,16 +571,11 @@ public class VillageGenerator : MonoBehaviour
     bool IsPositionOnAnyRoad(Vector3 pos)
     {
         Vector3 pos2D = new Vector3(pos.x, 0, pos.z);
-
         foreach (Bounds roadBound in roadBounds)
         {
             Vector3 roadCenter2D = new Vector3(roadBound.center.x, 0, roadBound.center.z);
-            float distToRoadCenter = Vector3.Distance(pos2D, roadCenter2D);
-
-            if (distToRoadCenter < (roadWidth * 0.5f + 1f))
-            {
+            if (Vector3.Distance(pos2D, roadCenter2D) < (roadWidth * 0.5f + 1f))
                 return true;
-            }
         }
         return false;
     }
