@@ -82,11 +82,11 @@ Shader "Custom/URP_Transparent_Water_Clean"
 
             half4 frag(Varyings i) : SV_Target
             {
-                // ? P?YNNY SCROLL - bez frac(), bez skakania
+                
                 float time = _Time.y * _ScrollMultiplier;
                 float2 uv = i.uv + _ScrollSpeed * time;
 
-                // Normal map sampling z p?ynnym przesuwaniem
+                
                 float3 n = UnpackNormal(tex2D(_NormalMap, uv));
                 float3 normalWS = normalize(i.normalWS + n * _NormalStrength);
 

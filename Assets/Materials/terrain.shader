@@ -29,7 +29,7 @@ Shader "Custom/Terrain_Realistic_Fixed_V3_DetailNormals"
             #pragma vertex vert
             #pragma fragment frag
             
-            // Wsparcie dla cieni (Wa?ne!)
+           
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
             #pragma multi_compile _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile _ _SHADOWS_SOFT
@@ -53,7 +53,7 @@ Shader "Custom/Terrain_Realistic_Fixed_V3_DetailNormals"
                 float3 positionWS : TEXCOORD1;
                 float3 normalWS : TEXCOORD2;
                 float4 tangentWS : TEXCOORD3;
-                // Deklaracja dla shadowCoord
+                
                 float4 shadowCoord : TEXCOORD4;
                 float fogFactor : TEXCOORD5;
             };
@@ -77,7 +77,6 @@ Shader "Custom/Terrain_Realistic_Fixed_V3_DetailNormals"
                 o.normalWS = normalInput.normalWS;
                 o.tangentWS = float4(normalInput.tangentWS, v.tangentOS.w);
 
-                // --- KLUCZOWA ZMIANA: Poprawne pobieranie wspó?rz?dnych cieni ---
                 #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
                     o.shadowCoord = GetShadowCoord(vertexInput);
                 #else
@@ -91,7 +90,7 @@ Shader "Custom/Terrain_Realistic_Fixed_V3_DetailNormals"
 
             half4 frag(Varyings i) : SV_Target
             {
-                // Albedo (Twoje blendowanie)
+                
                 float2 uv = i.uv;
                 float2 offset = float2(0.002, 0.002);
                 float3 albedo = (tex2D(_BaseMap, uv).rgb + 
@@ -99,21 +98,21 @@ Shader "Custom/Terrain_Realistic_Fixed_V3_DetailNormals"
                                  tex2D(_BaseMap, uv + float2(0, offset.y)).rgb + 
                                  tex2D(_BaseMap, uv - offset).rgb) * 0.25;
 
-                // Normal Map
+                
                 float2 detailUV = i.uv * _NormalTiling;
                 float3 nTex = UnpackNormal(tex2D(_NormalMap, detailUV));
 
-                // TBN
+              
                 float3 bitangent = cross(i.normalWS, i.tangentWS.xyz) * i.tangentWS.w;
                 float3x3 TBN = float3x3(i.tangentWS.xyz, bitangent, i.normalWS);
                 float3 normalWS = normalize(mul(nTex * float3(_NormalStrength, _NormalStrength, 1.0), TBN));
 
-                // --- O?WIETLENIE I CIENIE ---
-                // Przeliczenie shadowCoord dla fragmentu
+                // --- OSWIETLENIE I CIENIE ---
+               
                 float4 shadowCoord = TransformWorldToShadowCoord(i.positionWS);
                 Light light = GetMainLight(shadowCoord);
                 
-                // shadowAttenuation to warto?? od 0 do 1 (gdzie 0 to pe?ny cie?)
+                
                 float shadow = light.shadowAttenuation;
                 
                 float NdotL = saturate(dot(normalWS, light.direction));
@@ -129,7 +128,7 @@ Shader "Custom/Terrain_Realistic_Fixed_V3_DetailNormals"
 
                 float3 finalColor = diffuse + ambient + (spec * light.color);
 
-                // Mg?a
+                
                 finalColor = MixFog(finalColor, i.fogFactor);
 
                 return float4(finalColor, 1.0);
@@ -137,7 +136,7 @@ Shader "Custom/Terrain_Realistic_Fixed_V3_DetailNormals"
             ENDHLSL
         }
         
-        // Pass dla rzucania w?asnego cienia (je?li mesh mia?by rzuca? cie? na inne obiekty)
+        
         UsePass "Universal Render Pipeline/Lit/ShadowCaster"
     }
 }

@@ -30,10 +30,10 @@ public class MapGenerator : MonoBehaviour
     [Header("Regiony i obiekty")]
     public List<RegionData> regions = new List<RegionData>();
 
-    [Header("Ustawienia generowania obiektów")]
+    [Header("Ustawienia generowania obiektow")]
     public bool generateObjects = true;
     public Transform objectsParent;
-    public LayerMask terrainLayer; // Przypisz warstw?, na której jest Mesh terenu
+    public LayerMask terrainLayer;
 
     [Header("Woda")]
     public GameObject waterPrefab;
@@ -49,11 +49,15 @@ public class MapGenerator : MonoBehaviour
     private GameObject currentTerrainMesh;
     private Transform terrainParent;
 
+    // Lista do przechowywania boundsów dróg z VillageGenerator
+    private List<Bounds> roadBoundsFromVillage = new List<Bounds>();
+
     public void GenerateMap()
     {
         if (objectGenerationCoroutine != null) StopCoroutine(objectGenerationCoroutine);
 
         ClearSpawnedObjects();
+        roadBoundsFromVillage.Clear();
 
         currentNoiseMap = Noise.GenerateNoiseMap(
             mapChunkSize, mapChunkSize,
@@ -88,7 +92,6 @@ public class MapGenerator : MonoBehaviour
                 currentTerrainMesh = display.meshFilter.gameObject;
                 terrainParent = currentTerrainMesh.transform.parent;
 
-                // Ustawienie warstwy dla terenu, aby Raycast wiedzia? w co strzela?
                 if (terrainLayer != 0) currentTerrainMesh.layer = (int)Mathf.Log(terrainLayer.value, 2);
 
                 HandleWater();
@@ -109,7 +112,6 @@ public class MapGenerator : MonoBehaviour
         spawnedWater = Instantiate(waterPrefab);
         spawnedWater.name = "GeneratedWater";
 
-        // Wy??czenie collidera wody na czas generowania obiektów, ?eby Raycast go nie ?apa?
         Collider waterCol = spawnedWater.GetComponent<Collider>();
         if (waterCol != null) waterCol.enabled = false;
 
@@ -128,21 +130,42 @@ public class MapGenerator : MonoBehaviour
     IEnumerator GenerateObjectsWithDelay()
     {
         yield return null;
+
         if (currentTerrainMesh != null)
         {
-            MeshCollider collider = currentTerrainMesh.GetComponent<MeshCollider>();
-            if (collider == null) collider = currentTerrainMesh.AddComponent<MeshCollider>();
-            collider.sharedMesh = currentTerrainMesh.GetComponent<MeshFilter>().sharedMesh;
+            MeshCollider col = currentTerrainMesh.GetComponent<MeshCollider>();
+            if (col == null) col = currentTerrainMesh.AddComponent<MeshCollider>();
+            col.sharedMesh = currentTerrainMesh.GetComponent<MeshFilter>().sharedMesh;
         }
-        yield return null;
-        GenerateObjects();
 
-        // Po wygenerowaniu obiektów, mo?emy z powrotem w??czy? collider wody (opcjonalnie)
-        if (spawnedWater != null && spawnedWater.GetComponent<Collider>() != null)
-            spawnedWater.GetComponent<Collider>().enabled = true;
+        yield return null;
+
+        // Najpierw generujemy wiosk? (aby mie? boundsy dróg)
+        VillageGenerator village = FindObjectOfType<VillageGenerator>();
+        if (village != null)
+        {
+            Debug.Log("[MapGenerator] Uruchamiam VillageGenerator...");
+            village.Generate(currentNoiseMap, currentTerrainMesh, seed);
+
+            // Pobierz boundsy dróg z VillageGenerator
+            roadBoundsFromVillage = village.GetRoadBounds();
+        }
+        else
+        {
+            Debug.LogWarning("[MapGenerator] Brak komponentu VillageGenerator!");
+        }
+
+        // Potem generujemy obiekty ?rodowiska (omijaj?c drogi)
+        GenerateObjectsAvoidingRoads();
+
+        if (spawnedWater != null)
+        {
+            Collider waterCol = spawnedWater.GetComponent<Collider>();
+            if (waterCol != null) waterCol.enabled = true;
+        }
     }
 
-    void GenerateObjects()
+    void GenerateObjectsAvoidingRoads()
     {
         if (currentTerrainMesh == null) return;
         Random.InitState(seed);
@@ -176,10 +199,14 @@ public class MapGenerator : MonoBehaviour
                         Vector3 rayStart = new Vector3(worldX, 500f, worldZ);
                         RaycastHit hit;
 
-                        // U?ywamy maski terenu, aby ignorowa? wod? i inne obiekty
                         if (Physics.Raycast(rayStart, Vector3.down, out hit, 1000f, terrainLayer))
                         {
                             Vector3 spawnPos = hit.point;
+
+                            // Sprawd? czy nie na drodze
+                            if (IsPositionOnRoad(spawnPos))
+                                continue;
+
                             if (!IsTooClose(spawnPos, objData.minDistanceBetween))
                             {
                                 SpawnObject(objData, spawnPos);
@@ -190,6 +217,27 @@ public class MapGenerator : MonoBehaviour
                 }
             }
         }
+
+        Debug.Log($"[MapGenerator] Wygenerowano {spawnedObjects.Count} obiektów ?rodowiska (pomijaj?c drogi)");
+    }
+
+    bool IsPositionOnRoad(Vector3 position)
+    {
+        foreach (Bounds roadBound in roadBoundsFromVillage)
+        {
+            // Sprawd? czy pozycja jest w obr?bie drogi (z ma?ym marginesem)
+            if (position.x >= roadBound.min.x - 2f && position.x <= roadBound.max.x + 2f &&
+                position.z >= roadBound.min.z - 2f && position.z <= roadBound.max.z + 2f)
+            {
+                // Dodatkowe sprawdzenie odleg?o?ci
+                if (Vector3.Distance(new Vector3(position.x, 0, position.z),
+                                    new Vector3(roadBound.center.x, 0, roadBound.center.z)) < roadBound.extents.x + 2f)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     bool IsTooClose(Vector3 pos, float minDistance)
@@ -206,8 +254,6 @@ public class MapGenerator : MonoBehaviour
         GameObject obj = Instantiate(objData.prefab, position, Quaternion.identity);
         obj.transform.localScale = Vector3.one * Random.Range(objData.minScale, objData.maxScale);
         if (objData.randomRotation) obj.transform.Rotate(0, Random.Range(0, 360), 0);
-
-        // KLUCZ: Je?li objectsParent jest pusty, rodzicem NIE jest woda, tylko null (g?ówny poziom sceny)
         obj.transform.parent = (objectsParent != null) ? objectsParent : null;
         spawnedObjects.Add(obj);
     }
@@ -238,27 +284,27 @@ public class MapGenerator : MonoBehaviour
         if (lacunarity < 1) lacunarity = 1;
         if (octaves < 0) octaves = 0;
     }
-}
+    [System.Serializable]
+    public class RegionData
+    {
+        public string name = "Nowy region";
+        [Range(0, 1)] public float minHeight;
+        [Range(0, 1)] public float maxHeight;
+        public Color colour;
+        public List<RegionObjectData> objectsToSpawn;
+    }
 
-[System.Serializable]
-public class RegionData
-{
-    public string name = "Nowy region";
-    [Range(0, 1)] public float minHeight;
-    [Range(0, 1)] public float maxHeight;
-    public Color colour;
-    public List<RegionObjectData> objectsToSpawn;
-}
+    [System.Serializable]
+    public class RegionObjectData
+    {
+        public string name = "Nowy obiekt";
+        public GameObject prefab;
+        [Range(0, 1)] public float spawnChance = 0.1f;
+        public float spawnDensity = 5f;
+        public float minScale = 0.8f;
+        public float maxScale = 1.2f;
+        public bool randomRotation = true;
+        public float minDistanceBetween = 3f;
+    }
 
-[System.Serializable]
-public class RegionObjectData
-{
-    public string name = "Nowy obiekt";
-    public GameObject prefab;
-    [Range(0, 1)] public float spawnChance = 0.1f;
-    public float spawnDensity = 5f;
-    public float minScale = 0.8f;
-    public float maxScale = 1.2f;
-    public bool randomRotation = true;
-    public float minDistanceBetween = 3f;
 }
