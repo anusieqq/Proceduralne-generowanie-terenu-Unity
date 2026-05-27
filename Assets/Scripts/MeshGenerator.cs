@@ -71,7 +71,7 @@ public class MeshData
         mesh.vertices = vertices;
         mesh.triangles = triangles;
         mesh.uv = uvs;
-        mesh.RecalculateNormals(); // oblicza normalne do poprawnego oswietlenia
+        mesh.RecalculateNormals(); 
         return mesh;
     }
 }

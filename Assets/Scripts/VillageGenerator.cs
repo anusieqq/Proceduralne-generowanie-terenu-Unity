@@ -15,10 +15,10 @@ public class VillageGenerator : MonoBehaviour
 
     [Header("Dwie wioski")]
     public bool generateTwoVillages = true;
-    public float villageSeparation = 200f; // minimalna odleg?o?? mi?dzy centrami wiosek
+    public float villageSeparation = 200f; // minimalna odleglosc miedzy centrami wiosek
 
     [Header("Woda")]
-    public float waterLevel = 0.3f; // komórki noiseMap poni?ej tej warto?ci s? wod? i s? omijane
+    public float waterLevel = 0.3f; // komorki noiseMap ponizej tej wartosci to woda i sa omijane
 
     [Header("Ulice")]
     public GameObject roadSegmentPrefab;
@@ -43,7 +43,7 @@ public class VillageGenerator : MonoBehaviour
     public GameObject benchPrefab;
     public GameObject trashcanPrefab;
 
-    [Header("Odleg?o?ci")]
+    [Header("Odleglosci")]
     public float minBuildingDistance = 5f;
     public float decorSpacing = 8f;
     public float decorScale = 2f;
@@ -66,22 +66,25 @@ public class VillageGenerator : MonoBehaviour
         public float length;
     }
 
+    // Lista wszystkich spawnowanych obiektow do czyszczenia
     List<GameObject> spawnedObjects = new List<GameObject>();
+    // Lista dzialek pod budynki
     List<PlotData> plots = new List<PlotData>();
+    // Lista danych o drogach
     List<RoadData> roads = new List<RoadData>();
+    // Lista bounding boxow postawionych budynkow do kolizji
     List<Bounds> placedBounds = new List<Bounds>();
+    // Lista bounding boxow drog do kolizji
     List<Bounds> roadBounds = new List<Bounds>();
+    // Lista bounding boxow dekoracji do kolizji
     List<Bounds> placedDecorBounds = new List<Bounds>();
 
     Vector3 villageCenter;
 
-    // =========================================================================
-    // Centra obu wiosek – zapisane po wygenerowaniu, u?ywane do po??czenia drog?
-    // =========================================================================
+    // Publiczne dla debugowania wizualnego
     public Vector3 villageCenter1;
     public Vector3 villageCenter2;
 
-    // Przechowywane na czas generowania – potrzebne w ConnectVillages
     float[,] _noiseMap;
     GameObject _terrainObj;
 
@@ -90,9 +93,7 @@ public class VillageGenerator : MonoBehaviour
         return roadBounds;
     }
 
-    // =========================================================================
-    // G?ówna metoda generowania – teraz obs?uguje opcj? dwóch wiosek
-    // =========================================================================
+    // Glowna funkcja generowania - punkt wejscia
     public void Generate(float[,] noiseMap, GameObject terrainObj, int mapSeed)
     {
         ClearVillage();
@@ -110,16 +111,14 @@ public class VillageGenerator : MonoBehaviour
         }
     }
 
-    // =========================================================================
-    // Generuje dwie wioski w ró?nych miejscach i ??czy je drog?
-    // =========================================================================
+    // Generuje dwie wioski polaczone droga A* omijajaca wode
     void GenerateTwoVillages(float[,] noiseMap, GameObject terrainObj, int mapSeed)
     {
         // --- Wioska 1 ---
         Random.InitState(mapSeed);
         if (!FindFlatArea(noiseMap, terrainObj, out villageCenter1, Vector2.zero))
         {
-            Debug.LogWarning("[VillageGenerator] Nie znaleziono p?askiego terenu dla wioski 1!");
+            Debug.LogWarning("[VillageGenerator] Nie znaleziono plaskiego terenu dla wioski 1!");
             return;
         }
         Debug.Log($"[VillageGenerator] Centrum wioski 1: {villageCenter1}");
@@ -130,12 +129,11 @@ public class VillageGenerator : MonoBehaviour
         PlaceDecorations();
 
         // --- Wioska 2 ---
-        // Szukamy p?askiego miejsca z dala od wioski 1
         Random.InitState(mapSeed + 1);
         bool found2 = FindFlatAreaFarFrom(noiseMap, terrainObj, villageCenter1, villageSeparation, out villageCenter2);
         if (!found2)
         {
-            Debug.LogWarning("[VillageGenerator] Nie znaleziono p?askiego terenu dla wioski 2 – generuj? tylko jedn? wiosk?.");
+            Debug.LogWarning("[VillageGenerator] Nie znaleziono plaskiego terenu dla wioski 2 – generuje tylko jedna wioske.");
             return;
         }
         Debug.Log($"[VillageGenerator] Centrum wioski 2: {villageCenter2}");
@@ -144,21 +142,17 @@ public class VillageGenerator : MonoBehaviour
         AssignPlots();
         PlaceBuildings();
         PlaceDecorations();
-
-        // --- Droga ??cz?ca obie wioski ---
         ConnectVillages(villageCenter1, villageCenter2);
 
         Debug.Log($"[VillageGenerator] Wygenerowano dwie wioski, dystans: {Vector3.Distance(villageCenter1, villageCenter2):F1} jednostek.");
     }
 
-    // =========================================================================
-    // Oryginalna logika generowania pojedynczej wioski (bez zmian)
-    // =========================================================================
+    // Generuje pojedyncza wioske
     void GenerateSingleVillage(float[,] noiseMap, GameObject terrainObj, int mapSeed)
     {
         if (!FindFlatArea(noiseMap, terrainObj, out villageCenter, Vector2.zero))
         {
-            Debug.LogWarning("[VillageGenerator] Nie znaleziono p?askiego terenu!");
+            Debug.LogWarning("[VillageGenerator] Nie znaleziono plaskiego terenu!");
             return;
         }
 
@@ -170,12 +164,10 @@ public class VillageGenerator : MonoBehaviour
 
         int placed = 0;
         foreach (var p in plots) if (p.type != PlotType.Empty) placed++;
-        Debug.Log($"[VillageGenerator] Gotowe – dzia?ek do zabudowy: {placed}, ulic: {roads.Count}, budynków: {placedBounds.Count}, dekoracji: {placedDecorBounds.Count}");
+        Debug.Log($"[VillageGenerator] Gotowe – dzialek do zabudowy: {placed}, ulic: {roads.Count}, budynkow: {placedBounds.Count}, dekoracji: {placedDecorBounds.Count}");
     }
 
-    // =========================================================================
-    // Droga ??cz?ca dwa centra wiosek – trasa wyznaczana A* omijaj?cym wod?
-    // =========================================================================
+    // Laczy dwie wioski droga wyznaczona algorytmem A* omijajacym wode
     void ConnectVillages(Vector3 center1, Vector3 center2)
     {
         if (roadSegmentPrefab == null) return;
@@ -184,8 +176,8 @@ public class VillageGenerator : MonoBehaviour
 
         if (path == null || path.Count < 2)
         {
-            // Fallback: prosta linia je?li A* nie znalaz? trasy
-            Debug.LogWarning("[VillageGenerator] A* nie znalaz? trasy omijaj?cej wod? – ??cz? drog? prost?.");
+            // Fallback: prosta linia jesli A* nie znalazl trasy
+            Debug.LogWarning("[VillageGenerator] A* nie znalazla trasy omijajacej wode – polacz droga prosto.");
             RoadData fallback = new RoadData
             {
                 start = center1,
@@ -198,7 +190,7 @@ public class VillageGenerator : MonoBehaviour
             return;
         }
 
-        // Spawnjemy odcinki drogi mi?dzy kolejnymi punktami ?cie?ki
+        // Spawnujemy odcinki drogi miedzy kolejnymi punktami sciezki
         for (int i = 0; i < path.Count - 1; i++)
         {
             Vector3 segStart = path[i];
@@ -217,23 +209,20 @@ public class VillageGenerator : MonoBehaviour
             SpawnRoad(seg);
         }
 
-        Debug.Log($"[VillageGenerator] Po??czono wioski tras? A* ({path.Count} punktów), dystans: {Vector3.Distance(center1, center2):F1}.");
+        Debug.Log($"[VillageGenerator] Polaczono wioski trasa A* ({path.Count} punktow), dystans: {Vector3.Distance(center1, center2):F1}.");
     }
 
-    // =========================================================================
-    // A* na siatce noiseMap – zwraca list? punktów w przestrzeni ?wiata
-    // =========================================================================
+    // Algorytm A* znajdujacy najkrotsza trase omijajaca wode
     List<Vector3> FindPathAvoidingWater(Vector3 worldStart, Vector3 worldEnd)
     {
         if (_noiseMap == null || _terrainObj == null) return null;
 
         int mapSize = _noiseMap.GetLength(0);
 
-        // Przelicz pozycje ?wiata na komórki mapy
+        // Przelicz pozycje swiata na komorki mapy
         Vector2Int startCell = WorldToMapCell(worldStart, mapSize);
         Vector2Int endCell = WorldToMapCell(worldEnd, mapSize);
 
-        // --- A* ---
         var openSet = new SortedList<float, Vector2Int>(Comparer<float>.Create((a, b) => a == b ? 1 : a.CompareTo(b)));
         var cameFrom = new Dictionary<Vector2Int, Vector2Int>();
         var gScore = new Dictionary<Vector2Int, float>();
@@ -244,12 +233,11 @@ public class VillageGenerator : MonoBehaviour
         openSet.Add(h0, startCell);
         inOpen.Add(startCell);
 
-        int maxIter = mapSize * mapSize; // zabezpieczenie przed niesko?czon? p?tl?
+        int maxIter = mapSize * mapSize; // zabezpieczenie przed nieskonczona petla
         int iter = 0;
 
         while (openSet.Count > 0 && iter++ < maxIter)
         {
-            // We? w?ze? z najni?szym f
             var kv = openSet.First();
             Vector2Int current = kv.Value;
             openSet.RemoveAt(0);
@@ -258,7 +246,7 @@ public class VillageGenerator : MonoBehaviour
             if (current == endCell)
                 return ReconstructPath(cameFrom, current, mapSize);
 
-            // 8 s?siadów
+            // Sprawdz 8 sasiadow
             for (int dx = -1; dx <= 1; dx++)
                 for (int dy = -1; dy <= 1; dy++)
                 {
@@ -267,8 +255,7 @@ public class VillageGenerator : MonoBehaviour
                     Vector2Int nb = new Vector2Int(current.x + dx, current.y + dy);
                     if (nb.x < 0 || nb.x >= mapSize || nb.y < 0 || nb.y >= mapSize) continue;
 
-                    // Kara za wod? – komórki poni?ej waterLevel s? bardzo kosztowne,
-                    // ale nadal przechodne (fallback gdy nie ma innej trasy)
+                    // Kara za wode – komorki ponizej waterLevel sa bardzo kosztowne
                     float h = _noiseMap[nb.x, nb.y];
                     float extra = h < waterLevel ? 1000f : 0f;
                     float step = (dx != 0 && dy != 0) ? 1.414f : 1f;
@@ -288,14 +275,16 @@ public class VillageGenerator : MonoBehaviour
                 }
         }
 
-        return null; // brak trasy
+        return null;
     }
 
+    // Funkcja heurystyczna A* – odleglosc euklidesowa
     float Heuristic(Vector2Int a, Vector2Int b)
     {
         return Mathf.Sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
     }
 
+    // Odtwarza sciezke z slownika cameFrom i upraszcza ja (usuwa zb?dne punkty)
     List<Vector3> ReconstructPath(Dictionary<Vector2Int, Vector2Int> cameFrom, Vector2Int current, int mapSize)
     {
         var cells = new List<Vector2Int>();
@@ -307,7 +296,7 @@ public class VillageGenerator : MonoBehaviour
         cells.Add(current);
         cells.Reverse();
 
-        // Upro?? ?cie?k? – zostaw tylko punkty gdzie zmienia si? kierunek
+        // Uproszczenie sciezki – usuniecie punktow lezacych na linii prostej
         var simplified = new List<Vector2Int> { cells[0] };
         for (int i = 1; i < cells.Count - 1; i++)
         {
@@ -319,7 +308,7 @@ public class VillageGenerator : MonoBehaviour
         }
         simplified.Add(cells[cells.Count - 1]);
 
-        // Przelicz komórki mapy na punkty ?wiata (przyci?gni?tye do terenu)
+        // Przelicz komorki mapy na punkty swiata
         var worldPath = new List<Vector3>();
         foreach (var cell in simplified)
             worldPath.Add(SnapToTerrain(MapToWorld(cell.x, cell.y, mapSize, _terrainObj)));
@@ -327,6 +316,7 @@ public class VillageGenerator : MonoBehaviour
         return worldPath;
     }
 
+    // Konwertuje pozycje swiata na wspolrzedne komorki mapy
     Vector2Int WorldToMapCell(Vector3 worldPos, int mapSize)
     {
         float half = (mapSize - 1) / 2f;
@@ -339,6 +329,7 @@ public class VillageGenerator : MonoBehaviour
         return new Vector2Int(mx, my);
     }
 
+    // Czy?ci wszystkie wygenerowane obiekty
     public void ClearVillage()
     {
         foreach (var o in spawnedObjects) if (o != null) DestroyImmediate(o);
@@ -354,9 +345,7 @@ public class VillageGenerator : MonoBehaviour
                 DestroyImmediate(villageParent.GetChild(i).gameObject);
     }
 
-    // =========================================================================
-    // FindFlatArea – nowa wersja z opcjonalnym przesuni?ciem strefy poszukiwa?
-    // =========================================================================
+    // Szuka plaskiego obszaru odpowiedniego pod wioske
     bool FindFlatArea(float[,] noiseMap, GameObject terrainObj, out Vector3 worldCenter, Vector2 searchOffset)
     {
         int size = noiseMap.GetLength(0);
@@ -387,15 +376,13 @@ public class VillageGenerator : MonoBehaviour
             }
 
         if (bestVar > maxFlatVariance)
-            Debug.LogWarning($"[VillageGenerator] Wariancja {bestVar:F4} > próg, u?ywam najlepszego miejsca.");
+            Debug.LogWarning($"[VillageGenerator] Wariancja {bestVar:F4} > prog, uzywam najlepszego miejsca.");
 
         worldCenter = MapToWorld(bx, by, size, terrainObj);
         return true;
     }
 
-    // =========================================================================
-    // Szuka p?askiego terenu w odleg?o?ci co najmniej minDist od excludePos
-    // =========================================================================
+    // Szuka plaskiego terenu w odleglosci co najmniej minDist od excludePos
     bool FindFlatAreaFarFrom(float[,] noiseMap, GameObject terrainObj,
         Vector3 excludeWorldPos, float minDist, out Vector3 worldCenter)
     {
@@ -407,8 +394,6 @@ public class VillageGenerator : MonoBehaviour
         for (int y = win; y < size - win; y += step)
             for (int x = win; x < size - win; x += step)
             {
-                // Wst?pne sprawdzenie odleg?o?ci w przestrzeni mapy
-                // (precyzyjne sprawdzenie w przestrzeni ?wiata poni?ej)
                 float sum = 0, sumSq = 0; int cnt = 0; bool bad = false;
                 for (int dy = -win / 2; dy <= win / 2; dy += 2)
                 {
@@ -422,7 +407,6 @@ public class VillageGenerator : MonoBehaviour
                 }
                 if (bad || cnt == 0) continue;
 
-                // Sprawd? odleg?o?? w przestrzeni ?wiata
                 Vector3 candidateWorld = MapToWorld(x, y, size, terrainObj);
                 if (Vector3.Distance(new Vector3(candidateWorld.x, 0, candidateWorld.z),
                                      new Vector3(excludeWorldPos.x, 0, excludeWorldPos.z)) < minDist)
@@ -434,18 +418,18 @@ public class VillageGenerator : MonoBehaviour
 
         if (bx == -1)
         {
-            // Fallback: u?yj najlepszego miejsca bez ograniczenia odleg?o?ci i ostrze?
-            Debug.LogWarning("[VillageGenerator] Brak miejsca spe?niaj?cego minDist – u?ywam najlepszego dost?pnego.");
+            Debug.LogWarning("[VillageGenerator] Brak miejsca spelniajacego minDist – uzywam najlepszego dostepnego.");
             return FindFlatArea(noiseMap, terrainObj, out worldCenter, Vector2.zero);
         }
 
         if (bestVar > maxFlatVariance)
-            Debug.LogWarning($"[VillageGenerator] Wioska 2: wariancja {bestVar:F4} > próg.");
+            Debug.LogWarning($"[VillageGenerator] Wioska 2: wariancja {bestVar:F4} > prog.");
 
         worldCenter = MapToWorld(bx, by, size, terrainObj);
         return true;
     }
 
+    // Generuje glowna siatke drog w wiosce (krzyz + dwie rownolegle)
     void GenerateRoads()
     {
         float r = villageRadius, off = r * .4f;
@@ -460,12 +444,14 @@ public class VillageGenerator : MonoBehaviour
             foreach (var rd in roads) SpawnRoad(rd);
     }
 
+    // Dodaje droge do listy
     void AddRoad(Vector3 s, Vector3 e)
     {
         Vector3 d = (e - s).normalized;
         roads.Add(new RoadData { start = s, end = e, direction = d, length = Vector3.Distance(s, e) });
     }
 
+    // Tworzy wizualna reprezentacje drogi z segmentow
     void SpawnRoad(RoadData rd)
     {
         float t = 0;
@@ -485,10 +471,9 @@ public class VillageGenerator : MonoBehaviour
         }
     }
 
+    // Przypisuje dzialki pod budynki wzdluz drog
     void AssignPlots()
     {
-        // AssignPlots zachowany dla kompatybilno?ci (wype?nia list? plots u?ywan? przez inne systemy).
-        // Logika budynków przeniesiona do PlaceBuildings.
         List<PlotData> candidates = new List<PlotData>();
         float fixedPlotWidth = 15f;
         float fixedPlotDepth = 15f;
@@ -537,40 +522,33 @@ public class VillageGenerator : MonoBehaviour
         plots.AddRange(candidates);
     }
 
-    // -------------------------------------------------------------------------
-    // Dopasuj budynek do terenu:
-    //   1. Znajd? wysoko?ci terenu w 4 naro?nikach podstawy + centrum
-    //   2. Wyznacz p?aszczyzn? najlepiej pasuj?c? (metoda Newella)
-    //   3. Ustaw pozycj? tak, ?eby DOLNA kraw?d? boundsów siedzia?a na tej p?aszczy?nie
-    // -------------------------------------------------------------------------
+    // Dopasowuje budynek do terenu (wykrywa nachylenie i ustawia odpowiednia rotacje)
     bool SnapBuildingToTerrain(GameObject prefab, Vector3 centerPos, Quaternion facingRot,
         out Vector3 finalPos, out Quaternion finalRot)
     {
         finalPos = centerPos;
         finalRot = facingRot;
 
-        // --- krok 1: poznaj rozmiary prefaba w kierunku patrzenia ---
         GameObject temp = Instantiate(prefab, Vector3.zero, facingRot);
         Bounds b = CalculateBounds(temp);
         DestroyImmediate(temp);
 
-        // Je?li prefab nie ma ?adnych rendererów, nie mo?emy nic zrobi?
         if (b.size == Vector3.zero) return false;
 
-        float hw = b.extents.x;   // po?owa szeroko?ci (o? X lokalnie)
-        float hd = b.extents.z;   // po?owa g??boko?ci (o? Z lokalnie)
+        float hw = b.extents.x;
+        float hd = b.extents.z;
 
         Vector3 right = facingRot * Vector3.right;
         Vector3 forward = facingRot * Vector3.forward;
 
-        // --- krok 2: 4 naro?niki + ?rodek podstawy w przestrzeni ?wiata ---
+        // Zbieramy punkty do wyznaczenia normalnej terenu: 4 narozniki + srodek
         Vector3[] samplePoints = new Vector3[]
         {
-            centerPos + right *  hw + forward *  hd,   // przód-prawy
-            centerPos - right *  hw + forward *  hd,   // przód-lewy
-            centerPos - right *  hw - forward *  hd,   // ty?-lewy
-            centerPos + right *  hw - forward *  hd,   // ty?-prawy
-            centerPos                                   // ?rodek
+            centerPos + right *  hw + forward *  hd,
+            centerPos - right *  hw + forward *  hd,
+            centerPos - right *  hw - forward *  hd,
+            centerPos + right *  hw - forward *  hd,
+            centerPos
         };
 
         Vector3[] groundPts = new Vector3[samplePoints.Length];
@@ -584,7 +562,7 @@ public class VillageGenerator : MonoBehaviour
 
         if (hits < 3) return false;
 
-        // --- krok 3: normalna p?aszczyzny metod? Newella ---
+        // Obliczamy normalna plaszczyzny metoda Newella
         Vector3 normal = Vector3.zero;
         for (int i = 0; i < hits; i++)
         {
@@ -597,34 +575,33 @@ public class VillageGenerator : MonoBehaviour
         normal = normal.normalized;
         if (normal.y < 0) normal = -normal;
 
-        // --- krok 4: centroid punktów terenu = punkt zakotwiczenia ---
+        // Centroid punktow terenu = punkt zakotwiczenia
         Vector3 centroid = Vector3.zero;
         for (int i = 0; i < hits; i++) centroid += groundPts[i];
         centroid /= hits;
 
-        // --- krok 5: finalna rotacja = przechylenie wg normalnej + kierunek patrzenia ---
+        // Finalna rotacja = przechylenie wg normalnej + kierunek patrzenia
         Quaternion tilt = Quaternion.FromToRotation(Vector3.up, normal);
         finalRot = tilt * facingRot;
 
-        // --- krok 6: przesu? budynek w gór? tak, ?eby dolna ?cianka boundsów
-        //             siedzia?a dok?adnie na centroidzie terenu ---
+        // Przesuwamy budynek tak, aby dolna krawedz boundsow siedziala na centroidzie
         GameObject temp2 = Instantiate(prefab, Vector3.zero, finalRot);
         Bounds b2 = CalculateBounds(temp2);
         DestroyImmediate(temp2);
 
-        // bottomOffset = odleg?o?? od pivotu obiektu do dolnej kraw?dzi boundsów
         float bottomOffset = -b2.min.y;
         finalPos = centroid + Vector3.up * bottomOffset;
 
         return true;
     }
 
+    // Rozmieszcza budynki na dzialkach
     void PlaceBuildings()
     {
         placedBounds.Clear();
         int buildingsPlaced = 0;
 
-        // Kolejka: wszystkie budynki do postawienia
+        // Kolejka budynkow do postawienia
         List<(PlotType type, GameObject prefab)> buildingQueue = new List<(PlotType, GameObject)>();
         for (int i = 0; i < churchCount; i++)
             buildingQueue.Add((PlotType.Church, churchPrefab));
@@ -643,11 +620,11 @@ public class VillageGenerator : MonoBehaviour
             buildingQueue.Add((PlotType.House, p));
         }
 
-        // Wszystkie mo?liwe pozycje wzd?u? dróg
+        // Wszystkie mozliwe pozycje wzdluz drog
         List<(Vector3 pos, Vector3 roadDir, bool leftSide)> allCandidates =
             GenerateAllCandidatePositions();
 
-        // Potasuj, ?eby budynki by?y roz?o?one ró?norodnie
+        // Tasowanie aby budynki byly rozlozone roznorodnie
         for (int i = allCandidates.Count - 1; i > 0; i--)
         {
             int j = Random.Range(0, i + 1);
@@ -662,7 +639,7 @@ public class VillageGenerator : MonoBehaviour
 
             foreach (var candidate in allCandidates)
             {
-                // Kierunek "twarz? do drogi"
+                // Kierunek "twarza do drogi"
                 Vector3 faceDir = candidate.leftSide
                     ? -Vector3.Cross(candidate.roadDir, Vector3.up)
                     : Vector3.Cross(candidate.roadDir, Vector3.up);
@@ -670,14 +647,14 @@ public class VillageGenerator : MonoBehaviour
                 Quaternion baseRot = faceDir != Vector3.zero
                     ? Quaternion.LookRotation(faceDir) : Quaternion.identity;
 
-                // Dopasuj do terenu (przechylenie + pozycja)
+                // Dopasowanie do terenu
                 Vector3 finalPos;
                 Quaternion finalRot;
                 if (!SnapBuildingToTerrain(building.prefab, candidate.pos, baseRot,
                                            out finalPos, out finalRot))
                     continue;
 
-                // Sprawd? kolizje z ju? postawionymi budynkami i drogami
+                // Sprawdzanie kolizji z innymi budynkami
                 GameObject tempCheck = Instantiate(building.prefab, finalPos, finalRot);
                 Bounds tempBounds = CalculateBounds(tempCheck);
                 DestroyImmediate(tempCheck);
@@ -685,6 +662,7 @@ public class VillageGenerator : MonoBehaviour
                 if (IsOverlapping(tempBounds, minBuildingDistance, placedBounds))
                     continue;
 
+                // Sprawdzanie kolizji z drogami
                 bool collidesWithRoad = false;
                 foreach (Bounds rb in roadBounds)
                 {
@@ -692,7 +670,6 @@ public class VillageGenerator : MonoBehaviour
                 }
                 if (collidesWithRoad) continue;
 
-                // Wszystko OK – postaw budynek
                 GameObject obj = Spawn(building.prefab, finalPos, finalRot);
                 if (obj != null)
                 {
@@ -704,12 +681,13 @@ public class VillageGenerator : MonoBehaviour
             }
 
             if (!placed)
-                Debug.LogWarning($"[VillageGenerator] Nie uda?o si? postawi?: {building.type}. Rozwa? zwi?kszenie villageRadius.");
+                Debug.LogWarning($"[VillageGenerator] Nie udalo sie postawic: {building.type}. Rozwaz zwiekszenie villageRadius.");
         }
 
-        Debug.Log($"[VillageGenerator] Postawiono {buildingsPlaced}/{buildingQueue.Count} budynków.");
+        Debug.Log($"[VillageGenerator] Postawiono {buildingsPlaced}/{buildingQueue.Count} budynkow.");
     }
 
+    // Generuje wszystkie mozliwe pozycje dla budynkow wzdluz drog
     List<(Vector3, Vector3, bool)> GenerateAllCandidatePositions()
     {
         var candidates = new List<(Vector3, Vector3, bool)>();
@@ -727,7 +705,6 @@ public class VillageGenerator : MonoBehaviour
 
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    // Kilka rz?dów odleg?o?ci od drogi – wi?cej szans na wolne miejsce
                     for (float depthMult = 1f; depthMult <= 3f; depthMult += 0.5f)
                     {
                         Vector3 pos = SnapToTerrain(rp + perp * side *
@@ -746,6 +723,7 @@ public class VillageGenerator : MonoBehaviour
         return candidates;
     }
 
+    // Sprawdza czy nowy obiekt zachodzi na juz istniejace
     bool IsOverlapping(Bounds newBounds, float extraDistance, List<Bounds> boundsList)
     {
         foreach (Bounds b in boundsList)
@@ -758,6 +736,7 @@ public class VillageGenerator : MonoBehaviour
         return false;
     }
 
+    // Oblicza bounding box obiektu z uwzglednieniem wszystkich dzieci
     Bounds CalculateBounds(GameObject obj)
     {
         Renderer[] rends = obj.GetComponentsInChildren<Renderer>();
@@ -772,6 +751,7 @@ public class VillageGenerator : MonoBehaviour
         return bounds;
     }
 
+    // Pobiera normalna terenu w danym punkcie
     Vector3 GetTerrainNormal(Vector3 pos)
     {
         float d = 0.5f;
@@ -802,6 +782,7 @@ public class VillageGenerator : MonoBehaviour
         return normal;
     }
 
+    // Zwraca losowy prefab dla danego typu budynku
     GameObject GetPrefab(PlotType type)
     {
         switch (type)
@@ -818,12 +799,14 @@ public class VillageGenerator : MonoBehaviour
         }
     }
 
+    // Rozmieszcza dekoracje wzdluz drog
     void PlaceDecorations()
     {
         placedDecorBounds.Clear();
         foreach (var rd in roads) PlaceDecorAlongRoad(rd);
     }
 
+    // Umieszcza dekoracje wzd?uz pojedynczej drogi
     void PlaceDecorAlongRoad(RoadData rd)
     {
         float t = decorSpacing;
@@ -850,6 +833,7 @@ public class VillageGenerator : MonoBehaviour
         }
     }
 
+    // Proba umieszczenia pojedynczej dekoracji z sprawdzeniem kolizji
     void TryPlaceDecor(GameObject prefab, Vector3 position, Quaternion rotation, float boundsRadius)
     {
         if (prefab == null) return;
@@ -871,6 +855,7 @@ public class VillageGenerator : MonoBehaviour
         }
     }
 
+    // Sprawdza czy pozycja znajduje sie na jakiejkolwiek drodze
     bool IsPositionOnAnyRoad(Vector3 pos)
     {
         Vector3 pos2D = new Vector3(pos.x, 0, pos.z);
@@ -883,6 +868,7 @@ public class VillageGenerator : MonoBehaviour
         return false;
     }
 
+    // Konwertuje wspolrzedne komorki mapy na pozycje w swiecie
     Vector3 MapToWorld(int mx, int my, int mapSize, GameObject terrainObj)
     {
         float half = (mapSize - 1) / 2f;
@@ -895,6 +881,7 @@ public class VillageGenerator : MonoBehaviour
             ? hit.point : new Vector3(wx, p.y, wz);
     }
 
+    // Dopasowuje pozycje do terenu (raycast w dol)
     Vector3 SnapToTerrain(Vector3 pos)
     {
         RaycastHit hit;
@@ -902,6 +889,7 @@ public class VillageGenerator : MonoBehaviour
             ? hit.point : pos;
     }
 
+    // Glowna funkcja spawnujaca obiekty z zarzadzaniem parentem i lista
     GameObject Spawn(GameObject prefab, Vector3 pos, Quaternion rot)
     {
         if (prefab == null) return null;
@@ -911,6 +899,7 @@ public class VillageGenerator : MonoBehaviour
         return obj;
     }
 
+    // Sprawdza czy dwie linie (drogi) przecinaja sie (do debugowania)
     bool LineIntersect(RoadData a, RoadData b, out Vector3 result)
     {
         result = Vector3.zero;
@@ -924,7 +913,8 @@ public class VillageGenerator : MonoBehaviour
         float tB = Vector3.Dot(result - b.start, b.direction);
         return tA >= 0 && tA <= a.length && tB >= 0 && tB <= b.length;
     }
-    // Dodaj na koncu klasy VillageGenerator, przed ostatnia klamra
+
+    // Zwraca centra wiosek do podgladu przed generowaniem
     public List<Vector3> GetVillageCentersPreview(float[,] noiseMap, GameObject terrainObj, int mapSeed)
     {
         var centers = new List<Vector3>();
